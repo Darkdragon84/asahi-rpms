@@ -1,0 +1,5 @@
+#!/bin/bash
+set -e
+systemctl --user stop protonmail-bridge.service 2>/dev/null || true
+protonmail-bridge --cli
+systemctl --user start protonmail-bridge.service

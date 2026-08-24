@@ -1,0 +1,91 @@
+Name:           protonmail-bridge
+Version:        3.25.0
+Release:        1%{?dist}
+Summary:        Proton Mail Bridge (CLI-only build, no Qt/gRPC GUI)
+
+License:        GPL-3.0-only
+URL:            https://github.com/ProtonMail/proton-bridge
+Source0:        https://github.com/ProtonMail/proton-bridge/archive/refs/tags/v%{version}.tar.gz
+Source1:        protonmail-bridge.service
+Source2:        protonmail-bridge-cli
+
+BuildRequires:  golang >= 1.24
+BuildRequires:  gcc
+BuildRequires:  systemd-rpm-macros
+BuildRequires:  libsecret-devel
+BuildRequires:  libfido2-devel
+BuildRequires:  libcbor-devel
+BuildRequires:  openssl-devel
+BuildRequires:  sqlite-devel
+
+Requires:       libsecret
+Requires:       libfido2
+Requires:       libcbor
+Requires:       openssl-libs
+Requires:       sqlite-libs
+Requires(post): systemd
+Requires(preun): systemd
+Requires(postun): systemd
+
+ExclusiveArch:  x86_64 aarch64
+
+%description
+Proton Mail Bridge lets you use Proton Mail with any desktop email client
+that supports IMAP and SMTP. This build omits the Qt6/gRPC C++ GUI frontend
+(internal/frontend/bridge-gui) entirely -- only the Go backend is built, via
+`make build-nogui`. This sidesteps the native gRPC/Protobuf/Abseil/Sentry
+dependency chain the GUI needs, which is a poor version match on Fedora
+(Fedora's grpc-devel/protobuf-devel are several years behind what the GUI's
+vcpkg manifest pins).
+
+Manage accounts with `protonmail-bridge --cli`. Run headless via
+`protonmail-bridge --noninteractive` (see the bundled systemd --user unit).
+Note: Bridge uses a single-instance file lock, so the CLI and the
+--noninteractive daemon cannot run at the same time -- stop the systemd
+unit before running --cli, and restart it afterwards. The bundled
+`protonmail-bridge-cli` wrapper does this automatically: it stops
+protonmail-bridge.service if running, launches the interactive --cli
+session, and restarts the service afterwards.
+
+%prep
+%autosetup -n proton-bridge-%{version}
+
+%build
+export CGO_ENABLED=1
+export GOFLAGS=-mod=mod
+make build-nogui \
+    TARGET_OS=linux \
+    BRIDGE_APP_VERSION=%{version} \
+    BUILD_TAGS=libsqlite3
+
+%install
+install -Dm755 bridge \
+    %{buildroot}%{_libdir}/protonmail/bridge/bridge
+install -d %{buildroot}%{_bindir}
+ln -sr %{_libdir}/protonmail/bridge/bridge \
+    %{buildroot}%{_bindir}/protonmail-bridge
+install -Dm644 %{SOURCE1} \
+    %{buildroot}%{_userunitdir}/protonmail-bridge.service
+install -Dm755 %{SOURCE2} \
+    %{buildroot}%{_bindir}/protonmail-bridge-cli
+
+%post
+%systemd_user_post protonmail-bridge.service
+
+%preun
+%systemd_user_preun protonmail-bridge.service
+
+%postun
+%systemd_user_postun_with_restart protonmail-bridge.service
+
+%files
+%license LICENSE
+%doc README.md Changelog.md
+%{_libdir}/protonmail/bridge/bridge
+%{_bindir}/protonmail-bridge
+%{_bindir}/protonmail-bridge-cli
+%{_userunitdir}/protonmail-bridge.service
+
+%changelog
+* Fri Aug 21 2026 Valentin <stauber.valentin@gmail.com> - 3.25.0-1
+- Initial CLI-only aarch64 build (no GUI/Qt6/gRPC-cpp dependency)
